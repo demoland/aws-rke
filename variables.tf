@@ -1,3 +1,9 @@
+variable "region" {
+  type        = string
+  description = "AWS Region"
+  default     = "us-east-2"
+}
+
 variable "cluster_name" {
   description = "Name of the rkegov cluster to create"
   type        = string

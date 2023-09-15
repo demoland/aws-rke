@@ -19,15 +19,6 @@ locals {
   target_group_arns = module.cp_lb.target_group_arns
 }
 
-data "aws_ami" "ubuntu_focal" {
-  owners      = ["self"]
-  most_recent = true
-  filter {
-    name   = "name"
-    values = ["packer_AWS_UBUNTU_20.04_*"]
-  }
-}
-
 resource "random_string" "uid" {
   # NOTE: Don't get too crazy here, several aws resources have tight limits on lengths (such as load balancers), in practice we are also relying on users to uniquely identify their cluster names
   length  = 3
@@ -194,7 +185,7 @@ module "servers" {
 
   vpc_id                      = var.vpc_id
   subnets                     = var.subnets
-  ami                         = data.aws_ami.ubuntu_focal.image_id
+  ami                         = var.ami
   instance_type               = var.instance_type
   block_device_mappings       = var.block_device_mappings
   extra_block_device_mappings = var.extra_block_device_mappings
