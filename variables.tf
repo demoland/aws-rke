@@ -55,7 +55,7 @@ variable "block_device_mappings" {
   description = "Server pool block device mapping configuration"
   type        = map(string)
   default = {
-    "size"      = 30
+    "size"      = 50
     "encrypted" = false
   }
 }
