@@ -1,10 +1,9 @@
-
 provider "aws" {
   region = local.aws_region
 }
 
 locals {
-  cluster_name = "cloud-enabled"
+  cluster_name = "hashi-stack"
   aws_region   = "us-east-2"
 
   tags = {
@@ -13,54 +12,9 @@ locals {
   }
 }
 
-data "aws_ami" "rhel7" {
-  most_recent = true
-  owners      = ["219670896067"] # owner is specific to aws gov cloud
-
-  filter {
-    name   = "name"
-    values = ["RHEL-7*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-}
-
-data "aws_ami" "rhel8" {
-  most_recent = true
-  owners      = ["219670896067"] # owner is specific to aws gov cloud
-
-  filter {
-    name   = "name"
-    values = ["RHEL-8*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-}
-
-data "aws_ami" "centos7" {
-  most_recent = true
-  owners      = ["345084742485"] # owner is specific to aws gov cloud
-
-  filter {
-    name   = "name"
-    values = ["CentOS Linux 7 x86_64 HVM EBS*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-}
-
 data "aws_ami" "centos8" {
   most_recent = true
-  owners      = ["345084742485"] # owner is specific to aws gov cloud
+  owners      = ["679593333241"] # owner is specific to aws gov cloud
 
   filter {
     name   = "name"
@@ -124,13 +78,13 @@ module "vpc" {
 # Server
 #
 module "rke2" {
-  source = "../.."
+  source = "../main"
 
   cluster_name = local.cluster_name
   vpc_id       = module.vpc.vpc_id
   subnets      = module.vpc.public_subnets # Note: Public subnets used for demo purposes, this is not recommended in production
 
-  ami                   = data.aws_ami.rhel8.image_id # Note: Multi OS is primarily for example purposes
+  ami                   = data.aws_ami.centos8.image_id # Note: Multi OS is primarily for example purposes
   ssh_authorized_keys   = [tls_private_key.ssh.public_key_openssh]
   instance_type         = "t3a.medium"
   controlplane_internal = false # Note this defaults to best practice of true, but is explicitly set to public for demo purposes
@@ -152,7 +106,7 @@ EOT
 # Generic agent pool
 #
 module "agents" {
-  source = "../../modules/agent-nodepool"
+  source = "../modules/agent-nodepool"
 
   name    = "generic"
   vpc_id  = module.vpc.vpc_id
