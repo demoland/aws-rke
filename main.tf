@@ -1,218 +1,205 @@
+
+provider "aws" {
+  region = local.aws_region
+}
+
 locals {
-  # Create a unique cluster name we'll prefix to all resources created and ensure it's lowercase
-  uname = var.unique_suffix ? lower("${var.cluster_name}-${random_string.uid.result}") : lower(var.cluster_name)
+  cluster_name = "cloud-enabled"
+  aws_region   = "us-east-2"
 
-  default_tags = {
-    "ClusterType" = "rke2",
+  tags = {
+    "terraform" = "true",
+    "env"       = "cloud-enabled",
+  }
+}
+
+data "aws_ami" "rhel7" {
+  most_recent = true
+  owners      = ["219670896067"] # owner is specific to aws gov cloud
+
+  filter {
+    name   = "name"
+    values = ["RHEL-7*"]
   }
 
-  ccm_tags = {
-    "kubernetes.io/cluster/${local.uname}" = "owned"
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+}
+
+data "aws_ami" "rhel8" {
+  most_recent = true
+  owners      = ["219670896067"] # owner is specific to aws gov cloud
+
+  filter {
+    name   = "name"
+    values = ["RHEL-8*"]
   }
 
-  cluster_data = {
-    name       = local.uname
-    server_url = module.cp_lb.dns
-    cluster_sg = aws_security_group.cluster.id
-    token      = module.statestore.token
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
   }
-  target_group_arns = module.cp_lb.target_group_arns
 }
 
-resource "random_string" "uid" {
-  # NOTE: Don't get too crazy here, several aws resources have tight limits on lengths (such as load balancers), in practice we are also relying on users to uniquely identify their cluster names
-  length  = 3
-  special = false
-  lower   = true
-  upper   = false
-  numeric = true
+data "aws_ami" "centos7" {
+  most_recent = true
+  owners      = ["345084742485"] # owner is specific to aws gov cloud
+
+  filter {
+    name   = "name"
+    values = ["CentOS Linux 7 x86_64 HVM EBS*"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
 }
 
-#
-# Cluster join token
-#
-resource "random_password" "token" {
-  length  = 40
-  special = false
+data "aws_ami" "centos8" {
+  most_recent = true
+  owners      = ["345084742485"] # owner is specific to aws gov cloud
+
+  filter {
+    name   = "name"
+    values = ["CentOS Linux 8 x86_64 HVM EBS*"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
 }
 
-module "statestore" {
-  source     = "./modules/statestore"
-  name       = local.uname
-  create_acl = var.create_acl
-  token      = random_password.token.result
-  tags       = merge(local.default_tags, var.tags)
-
-  attach_deny_insecure_transport_policy = var.statestore_attach_deny_insecure_transport_policy
+# Key Pair
+resource "tls_private_key" "ssh" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
 }
 
-#
-# Controlplane Load Balancer
-#
-module "cp_lb" {
-  source  = "./modules/nlb"
-  name    = local.uname
-  vpc_id  = var.vpc_id
-  subnets = var.subnets
-
-  enable_cross_zone_load_balancing = var.controlplane_enable_cross_zone_load_balancing
-  internal                         = var.controlplane_internal
-  access_logs_bucket               = var.controlplane_access_logs_bucket
-
-  cp_ingress_cidr_blocks            = var.controlplane_allowed_cidrs
-  cp_supervisor_ingress_cidr_blocks = var.controlplane_allowed_cidrs
-
-  tags = merge({}, local.default_tags, local.default_tags, var.tags)
+resource "local_file" "ssh_pem" {
+  filename        = "${local.cluster_name}.pem"
+  content         = tls_private_key.ssh.private_key_pem
+  file_permission = "0600"
 }
 
 #
-# Security Groups
+# Network
 #
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
 
-# Shared Cluster Security Group
-resource "aws_security_group" "cluster" {
-  name        = "${local.uname}-rke2-cluster"
-  description = "Shared ${local.uname} cluster security group"
-  vpc_id      = var.vpc_id
+  name = "rke2-${local.cluster_name}"
+  cidr = "10.88.0.0/16"
+
+  azs             = ["${local.aws_region}a", "${local.aws_region}b", "${local.aws_region}c"]
+  public_subnets  = ["10.88.1.0/24", "10.88.2.0/24", "10.88.3.0/24"]
+  private_subnets = ["10.88.101.0/24", "10.88.102.0/24", "10.88.103.0/24"]
+
+  enable_nat_gateway   = true
+  single_nat_gateway   = true
+  enable_vpn_gateway   = true
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  # Add in required tags for proper AWS CCM integration
+  public_subnet_tags = merge({
+    "kubernetes.io/cluster/${module.rke2.cluster_name}" = "shared"
+    "kubernetes.io/role/elb"                            = "1"
+  }, local.tags)
+
+  private_subnet_tags = merge({
+    "kubernetes.io/cluster/${module.rke2.cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"                   = "1"
+  }, local.tags)
 
   tags = merge({
-    "shared" = "true",
-  }, local.default_tags, var.tags)
+    "kubernetes.io/cluster/${module.rke2.cluster_name}" = "shared"
+  }, local.tags)
 }
 
-resource "aws_security_group_rule" "cluster_shared" {
-  description       = "Allow all inbound traffic between ${local.uname} cluster nodes"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
-  security_group_id = aws_security_group.cluster.id
+#
+# Server
+#
+module "rke2" {
+  source = "../.."
+
+  cluster_name = local.cluster_name
+  vpc_id       = module.vpc.vpc_id
+  subnets      = module.vpc.public_subnets # Note: Public subnets used for demo purposes, this is not recommended in production
+
+  ami                   = data.aws_ami.rhel8.image_id # Note: Multi OS is primarily for example purposes
+  ssh_authorized_keys   = [tls_private_key.ssh.public_key_openssh]
+  instance_type         = "t3a.medium"
+  controlplane_internal = false # Note this defaults to best practice of true, but is explicitly set to public for demo purposes
+  servers               = 1
+
+  # Enable AWS Cloud Controller Manager
+  enable_ccm = true
+
+  rke2_config = <<-EOT
+node-label:
+  - "name=server"
+  - "os=rhel8"
+EOT
+
+  tags = local.tags
+}
+
+#
+# Generic agent pool
+#
+module "agents" {
+  source = "../../modules/agent-nodepool"
+
+  name    = "generic"
+  vpc_id  = module.vpc.vpc_id
+  subnets = module.vpc.public_subnets # Note: Public subnets used for demo purposes, this is not recommended in production
+
+  ami                 = data.aws_ami.rhel8.image_id # Note: Multi OS is primarily for example purposes
+  ssh_authorized_keys = [tls_private_key.ssh.public_key_openssh]
+  spot                = true
+  asg                 = { min : 1, max : 10, desired : 2 }
+  instance_type       = "t3a.large"
+
+  # Enable AWS Cloud Controller Manager and Cluster Autoscaler
+  enable_ccm        = true
+  enable_autoscaler = true
+
+  rke2_config = <<-EOT
+node-label:
+  - "name=generic"
+  - "os=rhel8"
+EOT
+
+  cluster_data = module.rke2.cluster_data
+
+  tags = local.tags
+}
+
+# For demonstration only, lock down ssh access in production
+resource "aws_security_group_rule" "quickstart_ssh" {
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  security_group_id = module.rke2.cluster_data.cluster_sg
   type              = "ingress"
-
-  self = true
-}
-
-resource "aws_security_group_rule" "cluster_egress" {
-  description       = "Allow all outbound traffic"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
-  security_group_id = aws_security_group.cluster.id
-  type              = "egress"
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
-# Server Security Group
-resource "aws_security_group" "server" {
-  name        = "${local.uname}-rke2-server"
-  vpc_id      = var.vpc_id
-  description = "${local.uname} rke2 server node pool"
-  tags        = merge(local.default_tags, var.tags)
+# Generic outputs as examples
+output "rke2" {
+  value = module.rke2
 }
 
-resource "aws_security_group_rule" "server_cp" {
-  from_port                = 6443
-  to_port                  = 6443
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.server.id
-  type                     = "ingress"
-  source_security_group_id = module.cp_lb.security_group
-}
+# Example method of fetching kubeconfig from state store, requires aws cli and bash locally
+resource "null_resource" "kubeconfig" {
+  depends_on = [module.rke2]
 
-resource "aws_security_group_rule" "server_cp_supervisor" {
-  from_port                = 9345
-  to_port                  = 9345
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.server.id
-  type                     = "ingress"
-  source_security_group_id = module.cp_lb.security_group
-}
-
-#
-# IAM Role
-#
-module "iam" {
-  count = var.iam_instance_profile == "" ? 1 : 0
-
-  source = "./modules/policies"
-  name   = "${local.uname}-rke2-server"
-
-  permissions_boundary = var.iam_permissions_boundary
-
-  tags = merge({}, local.default_tags, var.tags)
-}
-
-#
-# Policies
-#
-resource "aws_iam_role_policy" "aws_required" {
-  count = var.iam_instance_profile == "" ? 1 : 0
-
-  name   = "${local.uname}-rke2-server-aws-introspect"
-  role   = module.iam[count.index].role
-  policy = data.aws_iam_policy_document.aws_required[count.index].json
-}
-
-resource "aws_iam_role_policy" "aws_ccm" {
-  count = var.iam_instance_profile == "" && var.enable_ccm ? 1 : 0
-
-  name   = "${local.uname}-rke2-server-aws-ccm"
-  role   = module.iam[count.index].role
-  policy = data.aws_iam_policy_document.aws_ccm[count.index].json
-}
-
-resource "aws_iam_role_policy" "get_token" {
-  count = var.iam_instance_profile == "" ? 1 : 0
-
-  name   = "${local.uname}-rke2-server-get-token"
-  role   = module.iam[count.index].role
-  policy = module.statestore.token.policy_document
-}
-
-resource "aws_iam_role_policy" "put_kubeconfig" {
-  count = var.iam_instance_profile == "" ? 1 : 0
-
-  name   = "${local.uname}-rke2-server-put-kubeconfig"
-  role   = module.iam[count.index].role
-  policy = module.statestore.kubeconfig_put_policy
-}
-
-#
-# Server Nodepool
-#
-module "servers" {
-  source = "./modules/nodepool"
-  name   = "${local.uname}-server"
-
-  vpc_id                      = var.vpc_id
-  subnets                     = var.subnets
-  ami                         = var.ami
-  instance_type               = var.instance_type
-  block_device_mappings       = var.block_device_mappings
-  extra_block_device_mappings = var.extra_block_device_mappings
-  vpc_security_group_ids      = concat([aws_security_group.server.id, aws_security_group.cluster.id, module.cp_lb.security_group], var.extra_security_group_ids)
-  spot                        = var.spot
-  target_group_arns           = local.target_group_arns
-  wait_for_capacity_timeout   = var.wait_for_capacity_timeout
-  metadata_options            = var.metadata_options
-  associate_public_ip_address = var.associate_public_ip_address
-
-  # Overrideable variables
-  userdata             = data.cloudinit_config.this.rendered
-  iam_instance_profile = var.iam_instance_profile == "" ? module.iam[0].iam_instance_profile : var.iam_instance_profile
-
-  # Don't allow something not recommended within etcd scaling, set max deliberately and only control desired
-  asg = {
-    min                  = 1
-    max                  = 7
-    desired              = var.servers
-    suspended_processes  = var.suspended_processes
-    termination_policies = var.termination_policies
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = "aws s3 cp ${module.rke2.kubeconfig_path} rke2.yaml"
   }
-
-  # TODO: Ideally set this to `length(var.servers)`, but currently blocked by: https://github.com/rancher/rke2/issues/349
-  min_elb_capacity = 1
-
-  tags = merge({
-    "Role" = "server",
-  }, local.ccm_tags, var.tags)
 }
