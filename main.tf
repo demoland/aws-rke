@@ -10,7 +10,7 @@ locals {
 
 data "aws_ami" "centos8" {
   most_recent = true
-  owners      = ["679593333241"] # owner is specific to aws gov cloud
+  owners      = ["aws-marketplace"]
 
   filter {
     name   = "name"
