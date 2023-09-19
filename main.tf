@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 locals {
-  cluster_name = "hashi-stack"
+  cluster_name = "hashi-rke2"
   aws_region   = "us-east-2"
 
   tags = {
@@ -130,8 +130,7 @@ node-label:
 EOT
 
   cluster_data = module.rke2.cluster_data
-
-  tags = local.tags
+  tags         = local.tags
 }
 
 # For demonstration only, lock down ssh access in production
