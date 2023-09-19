@@ -8,3 +8,19 @@ terraform {
     }
   }
 }
+
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = {
+      Owner       = "Daniel Fedick"
+      Purpose     = "aws-rke2"
+      Terraform   = true
+      Environment = "development"
+      DoNotDelete = true
+      Name        = "hashistack"
+      Type        = "Demoland Vault"
+    }
+  }
+}
