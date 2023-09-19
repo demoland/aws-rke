@@ -78,7 +78,7 @@ module "vpc" {
 # Server
 #
 module "rke2" {
-  source = "../main"
+  source = "./main"
 
   cluster_name = local.cluster_name
   vpc_id       = module.vpc.vpc_id
@@ -100,13 +100,14 @@ node-label:
 EOT
 
   tags = local.tags
+
 }
 
 #
 # Generic agent pool
 #
 module "agents" {
-  source = "../modules/agent-nodepool"
+  source = "./main/modules/agent-nodepool"
 
   name    = "generic"
   vpc_id  = module.vpc.vpc_id
