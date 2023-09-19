@@ -7,12 +7,10 @@ locals {
     "env"       = "quickstart",
   }
   server_iam_role = "K8sUnrestrictedCloudProviderRole"
+  vpc_id          = terraform_remote_state.vpc.outputs.vpc_id
 }
 
 # Query for defaults
-data "aws_vpc" "default" {
-  default = true
-}
 
 data "aws_subnet" "default" {
   availability_zone = "${local.aws_region}a"
@@ -52,14 +50,13 @@ data "aws_ami" "rhel8" {
 module "rke2" {
   source                = "./aws-rke2"
   cluster_name          = local.cluster_name
-  vpc_id                = data.aws_vpc.default.id
+  vpc_id                = local.vpc_id
   subnets               = [data.aws_subnet.default.id]
   ami                   = data.aws_ami.rhel8.image_id
   ssh_authorized_keys   = [tls_private_key.ssh.public_key_openssh]
   iam_instance_profile  = local.server_iam_role
   controlplane_internal = false # Note this defaults to best practice of true, but is explicitly set to public for demo purposes
   tags                  = local.tags
-
 }
 
 #
@@ -68,7 +65,7 @@ module "rke2" {
 module "agents" {
   source              = "./aws-rke2/modules/agent-nodepool"
   name                = "generic"
-  vpc_id              = data.aws_vpc.default.id
+  vpc_id              = local.vpc_id
   subnets             = [data.aws_subnet.default.id]
   ami                 = data.aws_ami.rhel8.image_id
   ssh_authorized_keys = [tls_private_key.ssh.public_key_openssh]
