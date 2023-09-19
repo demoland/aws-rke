@@ -5,13 +5,9 @@ locals {
   public_subnets  = data.terraform_remote_state.vpc.outputs.public_subnet_ids
 }
 
-provider "aws" {
-  region = local.region
-}
-
 provider "eks" {
-  source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
+  source = "terraform-aws-modules/eks/aws"
+  #  version = "~> 19.0"
 
   cluster_name    = "hash-eks"
   cluster_version = "1.27"
