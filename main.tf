@@ -96,7 +96,7 @@ module "rke2" {
   rke2_config = <<-EOT
 node-label:
   - "name=server"
-  - "os=rhel8"
+  - "os=centos8"
 EOT
 
   tags = local.tags
@@ -113,7 +113,7 @@ module "agents" {
   vpc_id  = module.vpc.vpc_id
   subnets = module.vpc.public_subnets # Note: Public subnets used for demo purposes, this is not recommended in production
 
-  ami                 = data.aws_ami.rhel8.image_id # Note: Multi OS is primarily for example purposes
+  ami                 = data.aws_ami.centos8.image_id # Note: Multi OS is primarily for example purposes
   ssh_authorized_keys = [tls_private_key.ssh.public_key_openssh]
   spot                = true
   asg                 = { min : 1, max : 10, desired : 2 }
@@ -126,7 +126,7 @@ module "agents" {
   rke2_config = <<-EOT
 node-label:
   - "name=generic"
-  - "os=rhel8"
+  - "os=centos8"
 EOT
 
   cluster_data = module.rke2.cluster_data
