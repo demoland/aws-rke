@@ -7,7 +7,7 @@ locals {
     "env"       = "quickstart",
   }
   server_iam_role = "K8sUnrestrictedCloudProviderRole"
-  vpc_id          = terraform_remote_state.vpc.outputs.vpc_id
+  vpc_id          = data.terraform_remote_state.vpc.outputs.vpc_id
 }
 
 # Query for defaults
