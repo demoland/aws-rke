@@ -31,7 +31,7 @@ resource "local_file" "pem" {
 
 data "aws_ami" "rhel8" {
   most_recent = true
-  owners      = ["219670896067"] # owner is specific to aws gov cloud
+  owners      = ["309956199498"]
 
   filter {
     name   = "name"
