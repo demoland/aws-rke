@@ -5,7 +5,7 @@ locals {
   public_subnets  = data.terraform_remote_state.vpc.outputs.public_subnet_ids
 }
 
-provider "eks" {
+module "eks" {
   source = "terraform-aws-modules/eks/aws"
   #  version = "~> 19.0"
 
