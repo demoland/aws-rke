@@ -78,7 +78,7 @@ module "vpc" {
 # Server
 #
 module "rke2" {
-  source = "./main"
+  source = "./aws-rke2"
 
   cluster_name = local.cluster_name
   vpc_id       = module.vpc.vpc_id
@@ -107,7 +107,7 @@ EOT
 # Generic agent pool
 #
 module "agents" {
-  source = "./main/modules/agent-nodepool"
+  source = "./aws-rke2/modules/agent-nodepool"
 
   name    = "generic"
   vpc_id  = module.vpc.vpc_id
