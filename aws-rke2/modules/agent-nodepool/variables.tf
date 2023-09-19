@@ -82,6 +82,7 @@ variable "asg" {
     desired              = number
     suspended_processes  = optional(list(string))
     termination_policies = optional(list(string))
+    module_variable_optional_attrs = bool
   })
 
   default = {
@@ -89,6 +90,7 @@ variable "asg" {
     max                  = 10
     desired              = 1
     suspended_processes  = []
+    module_variable_optional_attrs = true
     termination_policies = ["Default"]
   }
 }
