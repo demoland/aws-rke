@@ -1,6 +1,6 @@
 locals {
   cluster_name = "quickstart"
-  aws_region   = "us-gov-east-1"
+  aws_region   = "us-east-2"
 
   tags = {
     "terraform" = "true",
