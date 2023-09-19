@@ -1,13 +1,12 @@
 locals {
-  region          = "us-east-2"
   vpc_id          = data.terraform_remote_state.vpc.outputs.vpc_id
   private_subnets = data.terraform_remote_state.vpc.outputs.private_subnet_ids
   public_subnets  = data.terraform_remote_state.vpc.outputs.public_subnet_ids
 }
 
 module "eks" {
-  source = "terraform-aws-modules/eks/aws"
-  #  version = "~> 19.0"
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 19.0"
 
   cluster_name    = "hash-eks"
   cluster_version = "1.27"
