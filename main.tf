@@ -1,7 +1,3 @@
-provider "aws" {
-  region = local.aws_region
-}
-
 locals {
   cluster_name = "hashi-rke2"
   aws_region   = "us-east-2"
