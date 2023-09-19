@@ -1,100 +1,136 @@
 locals {
-  cluster_name = "quickstart"
-  aws_region   = "us-east-2"
+  region          = "us-east-2"
+  vpc_id          = data.terraform_remote_state.vpc.outputs.vpc_id
+  private_subnets = data.terraform_remote_state.vpc.outputs.private_subnet_ids
+  public_subnets  = data.terraform_remote_state.vpc.outputs.public_subnet_ids
+}
+
+provider "aws" {
+  region = local.region
+}
+
+provider "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 19.0"
+
+  cluster_name    = "hash-eks"
+  cluster_version = "1.27"
+
+  cluster_endpoint_public_access = true
+
+  cluster_addons = {
+    coredns = {
+      most_recent = true
+    }
+    kube-proxy = {
+      most_recent = true
+    }
+    vpc-cni = {
+      most_recent = true
+    }
+  }
+
+  vpc_id                   = local.vpc_id
+  subnet_ids               = local.public_subnets
+  control_plane_subnet_ids = local.private_subnets
+
+  # Self Managed Node Group(s)
+  self_managed_node_group_defaults = {
+    instance_type                          = "m6i.large"
+    update_launch_template_default_version = true
+    iam_role_additional_policies = {
+      AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+    }
+  }
+
+  self_managed_node_groups = {
+    one = {
+      name         = "mixed-1"
+      max_size     = 5
+      desired_size = 2
+
+      use_mixed_instances_policy = true
+      mixed_instances_policy = {
+        instances_distribution = {
+          on_demand_base_capacity                  = 0
+          on_demand_percentage_above_base_capacity = 10
+          spot_allocation_strategy                 = "capacity-optimized"
+        }
+
+        override = [
+          {
+            instance_type     = "m5.large"
+            weighted_capacity = "1"
+          },
+          {
+            instance_type     = "m6i.large"
+            weighted_capacity = "2"
+          },
+        ]
+      }
+    }
+  }
+
+  # EKS Managed Node Group(s)
+  eks_managed_node_group_defaults = {
+    instance_types = ["m6i.large", "m5.large", "m5n.large", "m5zn.large"]
+  }
+
+  eks_managed_node_groups = {
+    blue = {}
+    green = {
+      min_size     = 1
+      max_size     = 10
+      desired_size = 1
+
+      instance_types = ["t3.large"]
+      capacity_type  = "SPOT"
+    }
+  }
+
+  # Fargate Profile(s)
+  fargate_profiles = {
+    default = {
+      name = "default"
+      selectors = [
+        {
+          namespace = "default"
+        }
+      ]
+    }
+  }
+
+  # aws-auth configmap
+  manage_aws_auth_configmap = true
+
+  aws_auth_roles = [
+    {
+      rolearn  = "arn:aws:iam::66666666666:role/role1"
+      username = "role1"
+      groups   = ["system:masters"]
+    },
+  ]
+
+  aws_auth_users = [
+    {
+      userarn  = "arn:aws:iam::66666666666:user/user1"
+      username = "user1"
+      groups   = ["system:masters"]
+    },
+    {
+      userarn  = "arn:aws:iam::66666666666:user/user2"
+      username = "user2"
+      groups   = ["system:masters"]
+    },
+  ]
+
+  aws_auth_accounts = [
+    "777777777777",
+    "888888888888",
+  ]
 
   tags = {
-    "terraform" = "true",
-    "env"       = "quickstart",
-  }
-  server_iam_role = "K8sUnrestrictedCloudProviderRole"
-  vpc_id          = data.terraform_remote_state.vpc.outputs.vpc_id
-}
-
-# Query for defaults
-
-data "aws_subnet" "default" {
-  availability_zone = "${local.aws_region}a"
-  default_for_az    = true
-}
-
-# Private Key
-resource "tls_private_key" "ssh" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
-resource "local_file" "pem" {
-  filename        = "${local.cluster_name}.pem"
-  content         = tls_private_key.ssh.private_key_pem
-  file_permission = "0600"
-}
-
-data "aws_ami" "rhel8" {
-  most_recent = true
-  owners      = ["309956199498"]
-
-  filter {
-    name   = "name"
-    values = ["RHEL-8*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-}
-
-#
-# Server
-#
-module "rke2" {
-  source                = "./aws-rke2"
-  cluster_name          = local.cluster_name
-  vpc_id                = local.vpc_id
-  subnets               = [data.aws_subnet.default.id]
-  ami                   = data.aws_ami.rhel8.image_id
-  ssh_authorized_keys   = [tls_private_key.ssh.public_key_openssh]
-  iam_instance_profile  = local.server_iam_role
-  controlplane_internal = false # Note this defaults to best practice of true, but is explicitly set to public for demo purposes
-  tags                  = local.tags
-}
-
-#
-# Generic Agent Pool
-#
-module "agents" {
-  source              = "./aws-rke2/modules/agent-nodepool"
-  name                = "generic"
-  vpc_id              = local.vpc_id
-  subnets             = [data.aws_subnet.default.id]
-  ami                 = data.aws_ami.rhel8.image_id
-  ssh_authorized_keys = [tls_private_key.ssh.public_key_openssh]
-  tags                = local.tags
-  cluster_data        = module.rke2.cluster_data
-
-}
-
-# For demonstration only, lock down ssh access in production
-resource "aws_security_group_rule" "quickstart_ssh" {
-  from_port         = 22
-  to_port           = 22
-  protocol          = "tcp"
-  security_group_id = module.rke2.cluster_data.cluster_sg
-  type              = "ingress"
-  cidr_blocks       = ["0.0.0.0/0"]
-}
-
-# Generic outputs as examples
-output "rke2" {
-  value = module.rke2
-}
-
-# Example method of fetching kubeconfig from state store, requires aws cli and bash locally
-resource "null_resource" "kubeconfig" {
-  depends_on = [module.rke2]
-
-  provisioner "local-exec" {
-    interpreter = ["bash", "-c"]
-    command     = "aws s3 cp ${module.rke2.kubeconfig_path} rke2.yaml"
+    Environment = "dev"
+    Terraform   = "true"
   }
 }
