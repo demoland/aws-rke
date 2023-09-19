@@ -10,11 +10,11 @@ locals {
 
 data "aws_ami" "centos8" {
   most_recent = true
-  owners      = ["aws-marketplace"]
+  owners      = ["679593333241"]
 
   filter {
     name   = "name"
-    values = ["CentOS Linux 8 x86_64 HVM EBS*"]
+    values = ["CentOS*8*x86_64*"]
   }
 
   filter {
